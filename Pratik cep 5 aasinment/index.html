@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Object Detection & Logging Platform | Assignment 5</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TensorFlow.js and COCO-SSD for client-side WebGL real-time detection -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .badge {
+            transition: all 0.2s ease-in-out;
+        }
+        #webcam-container {
+            position: relative;
+            width: 100%;
+            height: 480px;
+            background-color: #0f172a;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        #webcam, #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
+                    <i class="fa-solid fa-crosshairs text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">Real-Time Object Detection & Logging Platform</h1>
+                    <p class="text-xs text-slate-400">Assignment 5 • Computer Vision & Event Logging</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <span id="model-status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <i class="fa-solid fa-spinner fa-spin mr-1"></i> Loading Model...
+                </span>
+                <a href="https://github.com/pratikbhor615-ops/object-detection-system" target="_blank" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition flex items-center">
+                    <i class="fa-brands fa-github mr-2"></i> GitHub Repo
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto p-6 flex-1 w-full space-y-6">
+
+        <!-- Metrics Overview Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 shadow-sm">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    Processing Speed <i class="fa-solid fa-bolt text-emerald-400"></i>
+                </div>
+                <div class="text-2xl font-bold text-emerald-400" id="fps-metric">0.0 FPS</div>
+                <div class="text-xs text-slate-500 mt-1">Real-Time WebGL</div>
+            </div>
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 shadow-sm">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    Current Detections <i class="fa-solid fa-bullseye text-blue-400"></i>
+                </div>
+                <div class="text-2xl font-bold text-blue-400" id="frame-objects-metric">0</div>
+                <div class="text-xs text-slate-500 mt-1">Active in current frame</div>
+            </div>
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 shadow-sm">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    Total Events Logged <i class="fa-solid fa-database text-purple-400"></i>
+                </div>
+                <div class="text-2xl font-bold text-purple-400" id="total-logs-metric">0</div>
+                <div class="text-xs text-slate-500 mt-1">MySQL vision_platform</div>
+            </div>
+            <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 shadow-sm">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    Highest Confidence <i class="fa-solid fa-chart-line text-amber-400"></i>
+                </div>
+                <div class="text-2xl font-bold text-amber-400" id="highest-conf-metric">0.00</div>
+                <div class="text-xs text-slate-500 mt-1">Current detection score</div>
+            </div>
+        </div>
+
+        <!-- Video & Controls Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Video Feed (2 Columns) -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-base font-semibold flex items-center">
+                            <i class="fa-solid fa-video mr-2 text-blue-400"></i> Live Video Feed
+                        </h2>
+                        <div class="flex items-center space-x-2">
+                            <button id="start-btn" onclick="startCamera()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition flex items-center shadow-sm">
+                                <i class="fa-solid fa-play mr-1.5"></i> Start Camera
+                            </button>
+                            <button id="stop-btn" onclick="stopCamera()" class="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-sm font-medium transition hidden flex items-center shadow-sm">
+                                <i class="fa-solid fa-stop mr-1.5"></i> Stop Camera
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="webcam-container" class="relative">
+                        <video id="webcam" playsinline autoplay muted></video>
+                        <canvas id="overlay"></canvas>
+                        <div id="video-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                            <i class="fa-solid fa-camera text-5xl text-slate-600 mb-3"></i>
+                            <p class="font-medium">Camera is currently stopped</p>
+                            <p class="text-xs text-slate-500 mt-1 max-w-sm">Click "Start Camera" above and grant browser permission to test live detection.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls & Settings (1 Column) -->
+            <div class="space-y-4">
+                <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5 space-y-5">
+                    <h2 class="text-base font-semibold flex items-center border-b border-slate-700/60 pb-3">
+                        <i class="fa-solid fa-sliders mr-2 text-blue-400"></i> Platform Configuration
+                    </h2>
+
+                    <!-- Confidence Threshold Slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label class="text-xs font-semibold text-slate-300 uppercase tracking-wide">Confidence Threshold</label>
+                            <span id="conf-val" class="text-sm font-bold text-blue-400">50%</span>
+                        </div>
+                        <input id="conf-slider" type="range" min="10" max="95" value="50" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateConfidence(this.value)">
+                        <p class="text-[11px] text-slate-500 mt-1">Filters detections with score lower than this threshold.</p>
+                    </div>
+
+                    <!-- Target Object Filter -->
+                    <div>
+                        <label class="text-xs font-semibold text-slate-300 uppercase tracking-wide block mb-2">Target Object Filters</label>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="person" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Person</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="cell phone" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Cell Phone</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="laptop" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Laptop</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="bottle" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Bottle</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="book" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Book</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2 rounded border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" value="cup" class="class-filter rounded accent-blue-500" checked onchange="updateClassFilter()">
+                                <span>Cup</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Database Logging Options -->
+                    <div class="pt-2 border-t border-slate-700/60 space-y-3">
+                        <label class="flex items-center justify-between cursor-pointer">
+                            <span class="text-xs font-semibold text-slate-300 uppercase tracking-wide">Enable Event Logging</span>
+                            <input id="logging-toggle" type="checkbox" class="w-4 h-4 accent-blue-500 rounded" checked>
+                        </label>
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-xs text-slate-400">Logging Cooldown</span>
+                                <span id="cooldown-val" class="text-xs font-bold text-slate-300">1.0s</span>
+                            </div>
+                            <input id="cooldown-slider" type="range" min="0.2" max="3.0" step="0.2" value="1.0" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="document.getElementById('cooldown-val').innerText = this.value + 's'">
+                        </div>
+                    </div>
+
+                    <!-- Database State Pill -->
+                    <div class="p-3 bg-slate-950/60 rounded-lg border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+                        <div>
+                            <span class="font-semibold text-slate-300">Database Schema:</span>
+                            <div>vision_platform.detection_logs</div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            Active
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Event Logging Table -->
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-semibold flex items-center">
+                        <i class="fa-solid fa-table-list mr-2 text-purple-400"></i> Event Detection Logs
+                    </h2>
+                    <p class="text-xs text-slate-400">Logs matching the MySQL table schema requirements</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportLogsCSV()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-lg transition flex items-center">
+                        <i class="fa-solid fa-download mr-1.5"></i> Export CSV
+                    </button>
+                    <button onclick="clearLogs()" class="px-3 py-1.5 bg-slate-700 hover:bg-rose-600 text-slate-200 text-xs font-medium rounded-lg transition flex items-center">
+                        <i class="fa-solid fa-trash mr-1.5"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="overflow-x-auto rounded-lg border border-slate-700/80">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-950/80 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-700">
+                        <tr>
+                            <th class="py-3 px-4">log_id</th>
+                            <th class="py-3 px-4">timestamp</th>
+                            <th class="py-3 px-4">object_class</th>
+                            <th class="py-3 px-4">confidence</th>
+                            <th class="py-3 px-4">bbox_x</th>
+                            <th class="py-3 px-4">bbox_y</th>
+                            <th class="py-3 px-4">bbox_w</th>
+                            <th class="py-3 px-4">bbox_h</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-tbody" class="divide-y divide-slate-800">
+                        <tr id="empty-row">
+                            <td colspan="8" class="text-center py-6 text-slate-500 italic">No events logged yet. Start the camera and point it at an object.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 py-4 px-6 text-center text-xs text-slate-500">
+        Assignment 5: Real-Time Object Detection Platform • Built with Python, OpenCV, YOLOv8, MySQL & Streamlit
+    </footer>
+
+    <!-- Client-Side Real-Time Inference Script -->
+    <script>
+        let model = null;
+        let video = document.getElementById('webcam');
+        let canvas = document.getElementById('overlay');
+        let ctx = canvas.getContext('2d');
+        let isStreaming = false;
+        let animationFrameId = null;
+
+        let confThreshold = 0.50;
+        let activeFilters = ['person', 'cell phone', 'laptop', 'bottle', 'book', 'cup'];
+        let logs = [];
+        let logIdCounter = 1;
+        let lastLoggedTimestamps = {};
+
+        // Color palette for object classes
+        const COLORS = [
+            '#00ff7f', '#ff1493', '#00bfff', '#ffa500', 
+            '#ba55d3', '#ffff00', '#ff4500', '#32cd32'
+        ];
+
+        // Load COCO-SSD Model on start
+        async function loadModel() {
+            try {
+                model = await cocoSsd.load();
+                const badge = document.getElementById('model-status-badge');
+                badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+                badge.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Model Ready (COCO-SSD)';
+            } catch (err) {
+                console.error("Model load error:", err);
+                const badge = document.getElementById('model-status-badge');
+                badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+                badge.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> Model Load Failed';
+            }
+        }
+        loadModel();
+
+        function updateConfidence(val) {
+            confThreshold = val / 100;
+            document.getElementById('conf-val').innerText = val + '%';
+        }
+
+        function updateClassFilter() {
+            const checkboxes = document.querySelectorAll('.class-filter');
+            activeFilters = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) activeFilters.push(cb.value);
+            });
+        }
+
+        async function startCamera() {
+            if (!model) {
+                alert("Please wait for the object detection model to finish loading.");
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    isStreaming = true;
+                    document.getElementById('video-placeholder').classList.add('hidden');
+                    document.getElementById('start-btn').classList.add('hidden');
+                    document.getElementById('stop-btn').classList.remove('hidden');
+                    
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    detectFrame();
+                };
+            } catch (err) {
+                alert("Could not access camera: " + err.message);
+            }
+        }
+
+        function stopCamera() {
+            isStreaming = false;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('video-placeholder').classList.remove('hidden');
+            document.getElementById('start-btn').classList.remove('hidden');
+            document.getElementById('stop-btn').classList.add('hidden');
+            document.getElementById('fps-metric').innerText = '0.0 FPS';
+            document.getElementById('frame-objects-metric').innerText = '0';
+        }
+
+        let lastFrameTime = performance.now();
+        let frameCounter = 0;
+        let fpsTimer = performance.now();
+
+        async function detectFrame() {
+            if (!isStreaming) return;
+
+            const now = performance.now();
+            frameCounter++;
+            if (now - fpsTimer >= 1000) {
+                const fps = (frameCounter / ((now - fpsTimer) / 1000)).toFixed(1);
+                document.getElementById('fps-metric').innerText = `${fps} FPS`;
+                frameCounter = 0;
+                fpsTimer = now;
+            }
+
+            // Run detection
+            const predictions = await model.detect(video);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const filteredDetections = [];
+            let maxConf = 0.0;
+
+            predictions.forEach((pred, idx) => {
+                const cls = pred.class.toLowerCase();
+                const score = pred.score;
+
+                if (score >= confThreshold && (activeFilters.length === 0 || activeFilters.includes(cls))) {
+                    filteredDetections.push(pred);
+                    if (score > maxConf) maxConf = score;
+
+                    const [x, y, width, height] = pred.bbox;
+                    const color = COLORS[idx % COLORS.length];
+
+                    // Draw Bounding Box
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, width, height);
+
+                    // Draw Label Badge
+                    const label = `${cls} ${(score * 100).toFixed(0)}%`;
+                    ctx.font = 'bold 13px sans-serif';
+                    const textWidth = ctx.measureText(label).width;
+
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, Math.max(0, y - 22), textWidth + 10, 22);
+
+                    ctx.fillStyle = '#000';
+                    ctx.fillText(label, x + 5, Math.max(16, y - 6));
+
+                    // Log detection with debounce
+                    handleLogging(cls, score, Math.round(x), Math.round(y), Math.round(width), Math.round(height));
+                }
+            });
+
+            document.getElementById('frame-objects-metric').innerText = filteredDetections.length;
+            document.getElementById('highest-conf-metric').innerText = maxConf.toFixed(2);
+
+            animationFrameId = requestAnimationFrame(detectFrame);
+        }
+
+        function handleLogging(cls, score, x, y, w, h) {
+            const loggingEnabled = document.getElementById('logging-toggle').checked;
+            if (!loggingEnabled) return;
+
+            const cooldownSec = parseFloat(document.getElementById('cooldown-slider').value);
+            const nowSec = performance.now() / 1000;
+            const lastTime = lastLoggedTimestamps[cls] || 0;
+
+            if ((nowSec - lastTime) >= cooldownSec) {
+                lastLoggedTimestamps[cls] = nowSec;
+
+                const date = new Date();
+                const tsStr = date.toISOString().replace('T', ' ').substring(0, 19);
+
+                const logEntry = {
+                    log_id: logIdCounter++,
+                    timestamp: tsStr,
+                    object_class: cls,
+                    confidence: parseFloat(score.toFixed(4)),
+                    bbox_x: x,
+                    bbox_y: y,
+                    bbox_w: w,
+                    bbox_h: h
+                };
+
+                logs.unshift(logEntry);
+                if (logs.length > 50) logs.pop();
+
+                renderLogs();
+            }
+        }
+
+        function renderLogs() {
+            document.getElementById('total-logs-metric').innerText = logs.length;
+            const tbody = document.getElementById('logs-tbody');
+            if (logs.length === 0) {
+                tbody.innerHTML = `<tr id="empty-row"><td colspan="8" class="text-center py-6 text-slate-500 italic">No events logged yet.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = logs.map(l => `
+                <tr class="hover:bg-slate-800/80 transition-colors">
+                    <td class="py-2.5 px-4 font-mono font-medium text-slate-400">#${l.log_id}</td>
+                    <td class="py-2.5 px-4 font-mono text-slate-400">${l.timestamp}</td>
+                    <td class="py-2.5 px-4 font-semibold text-blue-400">${l.object_class}</td>
+                    <td class="py-2.5 px-4 font-mono text-emerald-400">${(l.confidence * 100).toFixed(1)}%</td>
+                    <td class="py-2.5 px-4 font-mono">${l.bbox_x}</td>
+                    <td class="py-2.5 px-4 font-mono">${l.bbox_y}</td>
+                    <td class="py-2.5 px-4 font-mono">${l.bbox_w}</td>
+                    <td class="py-2.5 px-4 font-mono">${l.bbox_h}</td>
+                </tr>
+            `).join('');
+        }
+
+        function clearLogs() {
+            logs = [];
+            renderLogs();
+        }
+
+        function exportLogsCSV() {
+            if (logs.length === 0) {
+                alert("No logs to export!");
+                return;
+            }
+            let csv = "log_id,timestamp,object_class,confidence,bbox_x,bbox_y,bbox_w,bbox_h\n";
+            logs.forEach(l => {
+                csv += `${l.log_id},${l.timestamp},${l.object_class},${l.confidence},${l.bbox_x},${l.bbox_y},${l.bbox_w},${l.bbox_h}\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `detection_logs_${Date.now()}.csv`);
+            a.click();
+        }
+    </script>
+</body>
+</html>
